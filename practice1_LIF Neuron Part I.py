@@ -25,11 +25,11 @@ for step in range(10):
     # Print value of i
     print(f'{t:.3f}', f'{i:.4e}')
 
-#################################################
-## TODO for students: fill out compute v code ##
-# Fill out code and comment or remove the next line
-raise NotImplementedError("Student exercise: You need to fill out code to compute v")
-#################################################
+# #################################################
+# ## TODO for students: fill out compute v code ##
+# # Fill out code and comment or remove the next line
+# raise NotImplementedError("Student exercise: You need to fill out code to compute v")
+# #################################################
 
 # Initialize step_end and v0
 step_end = 10
