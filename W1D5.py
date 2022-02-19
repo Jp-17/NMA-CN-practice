@@ -3,164 +3,106 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# for random distributions:
-from scipy.stats import norm, poisson
-
-# for logistic regression:
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score
-
 
 # @title Plotting Functions
 
-def rasterplot(spikes, movement, trial):
-    [movements, trials, neurons, timepoints] = np.shape(spikes)
+def plot_data(X):
+    """
+  Plots bivariate data. Includes a plot of each random variable, and a scatter
+  plot of their joint activity. The title indicates the sample correlation
+  calculated from the data.
 
-    trial_spikes = spikes[movement, trial, :, :]
+  Args:
+    X (numpy array of floats) :   Data matrix each column corresponds to a
+                                  different random variable
 
-    trial_events = [((trial_spikes[x, :] > 0).nonzero()[0] - 150) / 100 for x in range(neurons)]
+  Returns:
+    Nothing.
+  """
 
-    plt.figure()
-    dt = 1 / 100
-    plt.eventplot(trial_events, linewidths=1);
-    plt.title('movement: %d - trial: %d' % (movement, trial))
-    plt.ylabel('neuron')
-    plt.xlabel('time [s]')
-
-
-def plotCrossValAccuracies(accuracies):
-    f, ax = plt.subplots(figsize=(8, 3))
-    ax.boxplot(accuracies, vert=False, widths=.7)
-    ax.scatter(accuracies, np.ones(8))
-    ax.set(
-        xlabel="Accuracy",
-        yticks=[],
-        title=f"Average test accuracy: {accuracies.mean():.2%}"
-    )
-    ax.spines["left"].set_visible(False)
-
-
-# @title Generate Data
-
-def generateSpikeTrains():
-    gain = 2
-    neurons = 50
-    movements = [0, 1, 2]
-    repetitions = 800
-
-    np.random.seed(37)
-
-    # set up the basic parameters:
-    dt = 1 / 100
-    start, stop = -1.5, 1.5
-    t = np.arange(start, stop + dt, dt)  # a time interval
-    Velocity_sigma = 0.5  # std dev of the velocity profile
-    Velocity_Profile = norm.pdf(t, 0, Velocity_sigma) / norm.pdf(0, 0,
-                                                                 Velocity_sigma)  # The Gaussian velocity profile, normalized to a peak of 1
-
-    # set up the neuron properties:
-    Gains = np.random.rand(neurons) * gain  # random sensitivity between 0 and `gain`
-    FRs = (np.random.rand(neurons) * 60) - 10  # random base firing rate between -10 and 50
-
-    # output matrix will have this shape:
-    target_shape = [len(movements), repetitions, neurons, len(Velocity_Profile)]
-
-    # build matrix for spikes, first, they depend on the velocity profile:
-    Spikes = np.repeat(Velocity_Profile.reshape([1, 1, 1, len(Velocity_Profile)]),
-                       len(movements) * repetitions * neurons, axis=2).reshape(target_shape)
-
-    # multiplied by gains:
-    S_gains = np.repeat(
-        np.repeat(Gains.reshape([1, 1, neurons]), len(movements) * repetitions, axis=1).reshape(target_shape[:3]),
-        len(Velocity_Profile)).reshape(target_shape)
-    Spikes = Spikes * S_gains
-
-    # and multiplied by the movement:
-    S_moves = np.repeat(np.array(movements).reshape([len(movements), 1, 1, 1]),
-                        repetitions * neurons * len(Velocity_Profile), axis=3).reshape(target_shape)
-    Spikes = Spikes * S_moves
-
-    # on top of a baseline firing rate:
-    S_FR = np.repeat(
-        np.repeat(FRs.reshape([1, 1, neurons]), len(movements) * repetitions, axis=1).reshape(target_shape[:3]),
-        len(Velocity_Profile)).reshape(target_shape)
-    Spikes = Spikes + S_FR
-
-    # can not run the poisson random number generator on input lower than 0:
-    Spikes = np.where(Spikes < 0, 0, Spikes)
-
-    # so far, these were expected firing rates per second, correct for dt:
-    Spikes = poisson.rvs(Spikes * dt)
-
-    return (Spikes)
+    fig = plt.figure(figsize=[8, 4])
+    gs = fig.add_gridspec(2, 2)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.plot(X[:, 0], color='k')
+    plt.ylabel('Neuron 1')
+    plt.title('Sample var 1: {:.1f}'.format(np.var(X[:, 0])))
+    ax1.set_xticklabels([])
+    ax2 = fig.add_subplot(gs[1, 0])
+    ax2.plot(X[:, 1], color='k')
+    plt.xlabel('Sample Number')
+    plt.ylabel('Neuron 2')
+    plt.title('Sample var 2: {:.1f}'.format(np.var(X[:, 1])))
+    ax3 = fig.add_subplot(gs[:, 1])
+    ax3.plot(X[:, 0], X[:, 1], '.', markerfacecolor=[.5, .5, .5],
+             markeredgewidth=0)
+    ax3.axis('equal')
+    plt.xlabel('Neuron 1 activity')
+    plt.ylabel('Neuron 2 activity')
+    plt.title('Sample corr: {:.1f}'.format(np.corrcoef(X[:, 0], X[:, 1])[0, 1]))
+    plt.show()
 
 
-def subsetPerception(spikes):
-    movements = [0, 1, 2]
-    split = 400
-    subset = 40
-    hwin = 3
+def plot_basis_vectors(X, W):
+    """
+  Plots bivariate data as well as new basis vectors.
 
-    [num_movements, repetitions, neurons, timepoints] = np.shape(spikes)
+  Args:
+    X (numpy array of floats) :   Data matrix each column corresponds to a
+                                  different random variable
+    W (numpy array of floats) :   Square matrix representing new orthonormal
+                                  basis each column represents a basis vector
 
-    decision = np.zeros([num_movements, repetitions])
+  Returns:
+    Nothing.
+  """
 
-    # ground truth for logistic regression:
-    y_train = np.repeat([0, 1, 1], split)
-    y_test = np.repeat([0, 1, 1], repetitions - split)
-
-    m_train = np.repeat(movements, split)
-    m_test = np.repeat(movements, split)
-
-    # reproduce the time points:
-    dt = 1 / 100
-    start, stop = -1.5, 1.5
-    t = np.arange(start, stop + dt, dt)
-
-    w_idx = list((abs(t) < (hwin * dt)).nonzero()[0])
-    w_0 = min(w_idx)
-    w_1 = max(w_idx) + 1  # python...
-
-    # get the total spike counts from stationary and movement trials:
-    spikes_stat = np.sum(spikes[0, :, :, :], axis=2)
-    spikes_move = np.sum(spikes[1:, :, :, :], axis=3)
-
-    train_spikes_stat = spikes_stat[:split, :]
-    train_spikes_move = spikes_move[:, :split, :].reshape([-1, neurons])
-
-    test_spikes_stat = spikes_stat[split:, :]
-    test_spikes_move = spikes_move[:, split:, :].reshape([-1, neurons])
-
-    # data to use to predict y:
-    x_train = np.concatenate((train_spikes_stat, train_spikes_move))
-    x_test = np.concatenate((test_spikes_stat, test_spikes_move))
-
-    # this line creates a logistics regression model object, and immediately fits it:
-    population_model = LogisticRegression(solver='liblinear', random_state=0).fit(x_train, y_train)
-
-    # solver, one of: 'liblinear', 'newton-cg', 'lbfgs', 'sag', and 'saga'
-    # some of those require certain other options
-    # print(population_model.coef_)       # slope
-    # print(population_model.intercept_)  # intercept
-
-    ground_truth = np.array(population_model.predict(x_test))
-    ground_truth = ground_truth.reshape([3, -1])
-
-    output = {}
-    output['perception'] = ground_truth
-    output['spikes'] = spikes[:, split:, :subset, :]
-
-    return (output)
+    plt.figure(figsize=[4, 4])
+    plt.plot(X[:, 0], X[:, 1], '.', color=[.5, .5, .5], label='Data')
+    plt.axis('equal')
+    plt.xlabel('Neuron 1 activity')
+    plt.ylabel('Neuron 2 activity')
+    plt.plot([0, W[0, 0]], [0, W[1, 0]], color='r', linewidth=3,
+             label='Basis vector 1')
+    plt.plot([0, W[0, 1]], [0, W[1, 1]], color='b', linewidth=3,
+             label='Basis vector 2')
+    plt.legend()
+    plt.show()
 
 
-def getData():
-    spikes = generateSpikeTrains()
+def plot_data_new_basis(Y):
+    """
+  Plots bivariate data after transformation to new bases.
+  Similar to plot_data but with colors corresponding to projections onto
+  basis 1 (red) and basis 2 (blue). The title indicates the sample correlation
+  calculated from the data.
 
-    dataset = subsetPerception(spikes=spikes)
+  Note that samples are re-sorted in ascending order for the first
+  random variable.
 
-    return (dataset)
+  Args:
+    Y (numpy array of floats):   Data matrix in new basis each column
+                                 corresponds to a different random variable
 
-
-dataset = getData()
-perception = dataset['perception']
-spikes = dataset['spikes']
+  Returns:
+    Nothing.
+  """
+    fig = plt.figure(figsize=[8, 4])
+    gs = fig.add_gridspec(2, 2)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.plot(Y[:, 0], 'r')
+    plt.xlabel
+    plt.ylabel('Projection \n basis vector 1')
+    plt.title('Sample var 1: {:.1f}'.format(np.var(Y[:, 0])))
+    ax1.set_xticklabels([])
+    ax2 = fig.add_subplot(gs[1, 0])
+    ax2.plot(Y[:, 1], 'b')
+    plt.xlabel('Sample number')
+    plt.ylabel('Projection \n basis vector 2')
+    plt.title('Sample var 2: {:.1f}'.format(np.var(Y[:, 1])))
+    ax3 = fig.add_subplot(gs[:, 1])
+    ax3.plot(Y[:, 0], Y[:, 1], '.', color=[.5, .5, .5])
+    ax3.axis('equal')
+    plt.xlabel('Projection basis vector 1')
+    plt.ylabel('Projection basis vector 2')
+    plt.title('Sample corr: {:.1f}'.format(np.corrcoef(Y[:, 0], Y[:, 1])[0, 1]))
+    plt.show()
